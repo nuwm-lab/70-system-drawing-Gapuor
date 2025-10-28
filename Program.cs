@@ -1,101 +1,127 @@
 ﻿using System;
 using System.Drawing;
+using System.Drawing.Drawing2D;
 using System.Windows.Forms;
 
 namespace LabWork
 {
-    public class GraphForm : Form
+    public class FunctionGraph : UserControl
     {
         private float minX = 2.3f;
         private float maxX = 5.4f;
         private float stepX = 0.8f;
+        private List<PointF> points;
 
-        public GraphForm()
+        public FunctionGraph()
         {
-            this.Text = "График функции";
-            this.Size = new Size(800, 600);
-            this.Paint += GraphForm_Paint;
-            this.Resize += GraphForm_Resize;
+            SetStyle(ControlStyles.OptimizedDoubleBuffer | 
+                    ControlStyles.AllPaintingInWmPaint | 
+                    ControlStyles.UserPaint, true);
+            
+            this.Resize += (s, e) => Invalidate();
+            CalculatePoints();
         }
 
-        private void GraphForm_Paint(object sender, PaintEventArgs e)
+        private void ValidateParameters()
         {
+            if (minX >= maxX)
+                throw new ArgumentException("minX must be less than maxX");
+            if (stepX <= 0)
+                throw new ArgumentException("stepX must be greater than 0");
+        }
+
+        private void CalculatePoints()
+        {
+            ValidateParameters();
+            points = new List<PointF>();
+            int steps = (int)((maxX - minX) / stepX) + 1;
+            
+            for (int i = 0; i < steps; i++)
+            {
+                float x = minX + i * stepX;
+                if (Math.Abs(x) < float.Epsilon) // Захист від ділення на нуль
+                    continue;
+                
+                float y = (x + (float)Math.Cos(2 * x)) / (3 * x);
+                points.Add(new PointF(x, y));
+            }
+        }
+
+        protected override void OnPaint(PaintEventArgs e)
+        {
+            base.OnPaint(e);
             Graphics g = e.Graphics;
+            g.SmoothingMode = SmoothingMode.AntiAlias;
             g.Clear(Color.White);
 
-            // Получаем размеры клиентской области
             float width = ClientSize.Width;
             float height = ClientSize.Height;
-
-            // Отступы от краев формы
             float margin = 40;
             float graphWidth = width - 2 * margin;
             float graphHeight = height - 2 * margin;
 
-            // Находим минимальное и максимальное значение функции
-            float minY = float.MaxValue;
-            float maxY = float.MinValue;
+            // Знаходимо мінімальне та максимальне значення Y
+            float minY = points.Min(p => p.Y);
+            float maxY = points.Max(p => p.Y);
 
-            for (float x = minX; x <= maxX; x += stepX)
-            {
-                float y = (x + (float)Math.Cos(2 * x)) / (3 * x);
-                minY = Math.Min(minY, y);
-                maxY = Math.Max(maxY, y);
-            }
-
-            // Создаем перо для рисования
+            // Малюємо осі
             using (Pen axisPen = new Pen(Color.Black, 1))
             using (Pen graphPen = new Pen(Color.Blue, 2))
+            using (Font font = new Font("Arial", 10))
             {
-                // Рисуем оси координат
+                // Малюємо осі координат
                 g.DrawLine(axisPen, margin, height - margin, width - margin, height - margin); // Ось X
                 g.DrawLine(axisPen, margin, margin, margin, height - margin); // Ось Y
 
-                // Рисуем график
-                bool isFirst = true;
-                float prevScreenX = 0, prevScreenY = 0;
+                // Малюємо графік
+                PointF[] screenPoints = points.Select(p => new PointF(
+                    margin + (p.X - minX) * graphWidth / (maxX - minX),
+                    height - margin - (p.Y - minY) * graphHeight / (maxY - minY)
+                )).ToArray();
 
-                for (float x = minX; x <= maxX; x += stepX)
+                g.DrawLines(graphPen, screenPoints);
+
+                // Підписи осей з урахуванням розміру тексту
+                using (StringFormat format = new StringFormat())
                 {
-                    float y = (x + (float)Math.Cos(2 * x)) / (3 * x);
+                    format.Alignment = StringAlignment.Center;
+                    
+                    // Вимірюємо розмір тексту
+                    SizeF xAxisSize = g.MeasureString("X", font);
+                    SizeF yAxisSize = g.MeasureString("Y", font);
+                    
+                    // Підписуємо осі
+                    g.DrawString("X", font, Brushes.Black, width - margin, height - margin + 5, format);
+                    g.DrawString("Y", font, Brushes.Black, margin - 20, margin - yAxisSize.Height, format);
 
-                    // Преобразуем координаты в экранные
-                    float screenX = margin + (x - minX) * graphWidth / (maxX - minX);
-                    float screenY = height - margin - (y - minY) * graphHeight / (maxY - minY);
-
-                    if (!isFirst)
-                    {
-                        g.DrawLine(graphPen, prevScreenX, prevScreenY, screenX, screenY);
-                    }
-
-                    prevScreenX = screenX;
-                    prevScreenY = screenY;
-                    isFirst = false;
-                }
-
-                // Подписываем оси
-                using (Font font = new Font("Arial", 10))
-                {
-                    g.DrawString("X", font, Brushes.Black, width - margin, height - margin);
-                    g.DrawString("Y", font, Brushes.Black, margin, margin);
-
-                    // Подписываем значения на осях
+                    // Підписуємо значення
+                    format.Alignment = StringAlignment.Far;
                     g.DrawString(minX.ToString("F1"), font, Brushes.Black, margin, height - margin + 5);
                     g.DrawString(maxX.ToString("F1"), font, Brushes.Black, width - margin, height - margin + 5);
-                    g.DrawString(minY.ToString("F2"), font, Brushes.Black, margin - 35, height - margin);
-                    g.DrawString(maxY.ToString("F2"), font, Brushes.Black, margin - 35, margin);
+                    g.DrawString(minY.ToString("F2"), font, Brushes.Black, margin - 5, height - margin, format);
+                    g.DrawString(maxY.ToString("F2"), font, Brushes.Black, margin - 5, margin, format);
                 }
             }
         }
+    }
 
-        private void GraphForm_Resize(object sender, EventArgs e)
+    public class MainForm : Form
+    {
+        private FunctionGraph graph;
+
+        public MainForm()
         {
-            Invalidate(); // Перерисовываем форму при изменении размера
+            this.Text = "Графік функції";
+            this.Size = new Size(800, 600);
+
+            graph = new FunctionGraph();
+            graph.Dock = DockStyle.Fill;
+            this.Controls.Add(graph);
         }
 
         static void Main()
         {
-            Application.Run(new GraphForm());
+            Application.Run(new MainForm());
         }
     }
 }
